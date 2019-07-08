@@ -15,10 +15,10 @@ mtcnn = MTCNN(device=device)
 #%%
 resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 #%%
-img = Image.open("dataset/david1.jpg")
+img = Image.open("dataset/sins1.jpg")
 img_cropped1 = mtcnn(img)
 #%%
-img = Image.open("dataset/david5.jpg")
+img = Image.open("dataset/sins4.jpg")
 img_cropped2 = mtcnn(img)
 #%%
 img_embedding1 = resnet(img_cropped1.unsqueeze(0).to(device)).cpu().detach().numpy()
