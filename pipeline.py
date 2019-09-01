@@ -15,7 +15,7 @@ import torch
 import imp
 import numpy as np
 #%%
-device = torch.device("cpu")#'cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print('Running on device: {}'.format(device))
 #%%
 mtcnn = MTCNN(device=device)
@@ -32,7 +32,7 @@ threshold_cosine = .5
 threshold_euc = .7
 #%%
 MainModel = imp.load_source('MainModel', "model/spoof_detection.py")
-spoof_detector = torch.load("model/spoof_detection.pth")
+spoof_detector = torch.load("model/spoof_detection.pth").float().to(device)
 spoof_detector.eval()
 
 print("Loaded model from disk")
@@ -59,43 +59,51 @@ text = ""
 
 while True:
     ret, frame = video_capture.read()
-    plt.imshow(frame)
-    plt.show()
-    continue
 
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     try:
-        img_cropped = mtcnn(frame)
+        pil_image = Image.fromarray(frame)
+        img_cropped = mtcnn(pil_image)
     except:
         text = "ARMED"
-        cv2.putText(frame, text, (0, 0), font, 1.0, (255, 255, 255), 1)
+        cv2.putText(frame, text, (100, 100), font, 1.0, (0, 0, 0), 1)
         cv2.imshow("Video", frame)
-        continue
-
-    if img_cropped:
-        liveimg = cv2.resize(frame, (100, 100))
-        liveimg = cv2.cvtColor(liveimg, cv2.COLOR_BGR2GRAY)
-        input_vid.append(liveimg)
-        flush_counter = 0
-    else:
         flush_counter = flush_counter + 1
         if flush_counter >= 24:
             input_vid = []
+            flush_counter = 0
         continue
 
-    if len(input_vid) >= 24:
-        inp = np.array([input_vid[-24:]])
-        inp = inp / 255
-        inp = inp.reshape(1, 24, 100, 100, 1)
-        pred = spoof_detector.predict(torch.from_numpy(inp))
-        input_vid = input_vid[-25:]
+    if img_cropped is None:
+        text = "ARMED"
+        cv2.putText(frame, text, (100, 100), font, 1.0, (0, 0, 0), 1)
+        cv2.imshow("Video", frame)
+        flush_counter = flush_counter + 1
+        if flush_counter >= 24:
+            input_vid = []
+            flush_counter = 0
+        continue
 
-        if pred > .95 :
+    flush_counter = 0
+
+    liveimg = cv2.resize(frame, (100, 100))
+    liveimg = cv2.cvtColor(liveimg, cv2.COLOR_RGB2GRAY)
+    input_vid.append(torch.tensor(liveimg/255).float())
+    flush_counter = 0
+
+    if len(input_vid) >= 24:
+        inp = torch.stack(input_vid[-24:])
+        pred = spoof_detector(inp.unsqueeze(0).unsqueeze(0).to(device))
+        input_vid = input_vid[-25:]
+        if pred.data[0][0] > .9 :
             name = ""
 
             for saved_name in saved_embeddings:
                 saved_embedding = saved_embeddings[saved_name]
-                current_embedding = resnet(img_cropped.unsqueeze(0).to(device)).cpu().detach().numpy()
+                try:
+                    current_embedding = resnet(img_cropped.unsqueeze(0).to(device)).cpu().detach().numpy()
+                except:
+                    continue
                 dist_cosine = cosine(saved_embedding, current_embedding)
                 dist_euclidian = euclidean(saved_embedding, current_embedding)
                 if dist_cosine < threshold_cosine:
@@ -112,12 +120,12 @@ while True:
                 text = "FACE UNIDENTIFIED"
 
         else:
-            text = "SPOOFING DETECTED! YOU THINK I'M STUPID?!"
+            text = str(pred)
 
     else:
         text = "ARMED"
 
-    cv2.putText(frame, text, (0, 0), font, 1.0, (255, 255, 255), 1)
+    cv2.putText(frame, text, (100, 100), font, 0.5, (0, 0, 0), 1)
     cv2.imshow("Video", frame)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
